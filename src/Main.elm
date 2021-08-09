@@ -1,15 +1,18 @@
 module Main exposing (..)
 
+import Animator as Anim
 import Browser
 import Browser.Events exposing (onKeyDown)
-import Debug exposing (toString, todo)
-import Element exposing (Color, Element, alignLeft, alignRight, behindContent, centerX, centerY, column, el, fill, fillPortion, height, inFront, padding, px, rgb255, row, shrink, spacing, text, width)
+import Color exposing (Color)
+import Debug exposing (todo)
+import Element exposing (Attribute, Color, Element, alignLeft, alignRight, behindContent, centerX, centerY, column, el, fill, fillPortion, fromRgb, height, inFront, padding, px, rgb255, row, shrink, spacing, text, width)
 import Element.Background as Background
 import Element.Border as Border
 import Element.Events exposing (onMouseDown, onMouseEnter, onMouseUp)
 import Element.Font as Font
 import Element.Input exposing (button)
 import Html exposing (Html)
+import Html.Attributes
 import Html.Events
 import Json.Decode as Decode
 import List.Extra exposing (initialize)
@@ -18,12 +21,18 @@ import Random.Extra
 import Random.Set
 import Set exposing (Set)
 import Set.Extra
+import Time
 import Tuple exposing (first, second)
 
 
 flip : (a -> b -> c) -> b -> a -> c
 flip f b a =
     f a b
+
+
+pairSwap : ( a, b ) -> ( b, a )
+pairSwap ( a, b ) =
+    ( b, a )
 
 
 main : Program () Model Msg
@@ -36,25 +45,6 @@ type KeyValue
     | Control String
 
 
-keyDecoder : Decode.Decoder KeyValue
-keyDecoder =
-    Decode.map toKeyValue (Decode.field "key" Decode.string)
-
-
-toKeyValue : String -> KeyValue
-toKeyValue string =
-    let
-        _ =
-            Debug.log string
-    in
-    case String.uncons string of
-        Just ( char, "" ) ->
-            Character char
-
-        _ ->
-            Control string
-
-
 type Direction
     = Up
     | Right
@@ -63,8 +53,8 @@ type Direction
 
 
 type SelectionCorner
-    = Start
-    | End
+    = LeftTop
+    | BottomRight
 
 
 type alias MoveSelection =
@@ -73,46 +63,90 @@ type alias MoveSelection =
 
 type Control
     = Move MoveSelection
+    | EndTurn
+    | ControlReset
+
+
+toKeyValue : String -> KeyValue
+toKeyValue string =
+    case String.uncons string of
+        Just ( char, "" ) ->
+            Character char
+
+        _ ->
+            Control string
+
+
+keyDecoder : Decode.Decoder KeyValue
+keyDecoder =
+    Decode.map toKeyValue (Decode.field "key" Decode.string)
 
 
 toControl : KeyValue -> Maybe Control
 toControl key =
     case key of
-        Control "ArrowUp" ->
-            Just (Move { selectionCorner = End, direction = Up })
-
-        Control "ArrowDown" ->
-            Just (Move { selectionCorner = End, direction = Down })
-
-        Control "ArrowLeft" ->
-            Just (Move { selectionCorner = End, direction = Left })
-
-        Control "ArrowRight" ->
-            Just (Move { selectionCorner = End, direction = Right })
-
-        Control _ ->
-            Nothing
-
         Character 'w' ->
-            Just (Move { selectionCorner = Start, direction = Up })
+            Just (Move { selectionCorner = LeftTop, direction = Up })
 
         Character 's' ->
-            Just (Move { selectionCorner = Start, direction = Down })
+            Just (Move { selectionCorner = LeftTop, direction = Down })
 
         Character 'a' ->
-            Just (Move { selectionCorner = Start, direction = Left })
+            Just (Move { selectionCorner = LeftTop, direction = Left })
 
         Character 'd' ->
-            Just (Move { selectionCorner = Start, direction = Right })
+            Just (Move { selectionCorner = LeftTop, direction = Right })
 
-        Character _ ->
+        Control "ArrowUp" ->
+            Just (Move { selectionCorner = BottomRight, direction = Up })
+
+        Character 'k' ->
+            Just (Move { selectionCorner = BottomRight, direction = Up })
+
+        Control "ArrowDown" ->
+            Just (Move { selectionCorner = BottomRight, direction = Down })
+
+        Character 'j' ->
+            Just (Move { selectionCorner = BottomRight, direction = Down })
+
+        Control "ArrowLeft" ->
+            Just (Move { selectionCorner = BottomRight, direction = Left })
+
+        Character 'h' ->
+            Just (Move { selectionCorner = BottomRight, direction = Left })
+
+        Control "ArrowRight" ->
+            Just (Move { selectionCorner = BottomRight, direction = Right })
+
+        Character 'l' ->
+            Just (Move { selectionCorner = BottomRight, direction = Right })
+
+        Character ' ' ->
+            Just EndTurn
+
+        Character 'r' ->
+            Just ControlReset
+
+        _ ->
             Nothing
+
+
+animator : Anim.Animator Model
+animator =
+    Anim.animator
+        |> Anim.watchingWith
+            .state
+            (\newState model ->
+                { model | state = newState }
+            )
+            (always False)
 
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
         [ onKeyDown (Decode.map (toControl >> ProcessControl) keyDecoder)
+        , Anim.toSubscription Tick model animator
         ]
 
 
@@ -120,10 +154,14 @@ type alias Cell =
     ( Int, Int )
 
 
-type alias Board =
-    { size : Int
-    , aliveCells : Set Cell
-    }
+addCell : Cell -> Cell -> Cell
+addCell ( a, b ) ( c, d ) =
+    ( a + c, b + d )
+
+
+clampCell : Int -> Cell -> Cell
+clampCell boardSize ( x, y ) =
+    ( clamp 0 (boardSize - 1) x, clamp 0 (boardSize - 1) y )
 
 
 type alias Selection =
@@ -149,12 +187,27 @@ type PlayerType
     | Enemy
 
 
+type alias AliveCells =
+    Set Cell
+
+
+type TurnState
+    = Idle
+    | ShowSelections Selection
+
+
+type alias State =
+    { aliveCells : AliveCells
+    , playerSelection : InteractiveSelection
+    , turnState : TurnState
+    }
+
+
 type alias Model =
-    { board : Board
+    { state : Anim.Timeline State
+    , boardSize : Int
     , turnCount : Int
     , gameType : GameType
-    , playerSelection : InteractiveSelection
-    , enemySelection : Selection
     }
 
 
@@ -163,58 +216,60 @@ defaultBoardSize =
     10
 
 
-mirrorLeftHalf : Board -> Board
-mirrorLeftHalf board =
+mirrorLeftHalf : Int -> AliveCells -> AliveCells
+mirrorLeftHalf boardSize aliveCells =
     let
         rightPart =
-            {--Set.map (\c -> ( board.size - 1 - first c, second c )) board.aliveCells --}
-            Set.map (\c -> ( board.size - 1 - first c, board.size - 1 - second c )) board.aliveCells
+            {--Set.map (\c -> ( board.size - 1 - first c, second c )) aliveCells --}
+            Set.map (\c -> ( boardSize - 1 - first c, boardSize - 1 - second c )) aliveCells
     in
-    { board | aliveCells = Set.union board.aliveCells rightPart }
+    Set.union aliveCells rightPart
 
 
 randomCells : Random.Generator (Set Cell)
 randomCells =
-    Random.Set.set 16 (randomCell defaultBoardSize)
+    Random.Set.set 24 (randomCell defaultBoardSize)
 
 
-randomSymmetricBoard : Random.Generator Board
-randomSymmetricBoard =
-    randomCells |> Random.map (\cells -> mirrorLeftHalf { size = defaultBoardSize, aliveCells = cells })
+randomSymmetricBoard : Int -> Random.Generator AliveCells
+randomSymmetricBoard boardSize =
+    randomCells |> Random.map (mirrorLeftHalf boardSize)
 
 
-gliderBoard : Board
-gliderBoard =
-    Board defaultBoardSize <| Set.fromList [ ( 1, 2 ), ( 2, 3 ), ( 3, 1 ), ( 3, 2 ), ( 3, 3 ) ]
+
+{--gliderBoard : Board
+  - gliderBoard =
+  -     Board defaultBoardSize <| Set.fromList [ ( 1, 2 ), ( 2, 3 ), ( 3, 1 ), ( 3, 2 ), ( 3, 3 ) ] --}
 
 
-initBoard : Board
-initBoard =
-    mirrorLeftHalf gliderBoard
+initState : State
+initState =
+    { aliveCells = Set.empty
+    , playerSelection = Completed ( ( 1, 1 ), ( 4, 8 ) )
+    , turnState = Idle
+    }
 
 
 init : () -> ( Model, Cmd Msg )
 init _ =
-    ( { board = initBoard
+    ( { state = Anim.init initState
+      , boardSize = defaultBoardSize
       , turnCount = 0
       , gameType = VsBot Random
-      , playerSelection = Completed ( ( 1, 1 ), ( 4, 8 ) )
-      , enemySelection = entireSelection
       }
-    , Random.generate SetBoard randomSymmetricBoard
+    , Random.generate SetAliveCells <| randomSymmetricBoard defaultBoardSize
     )
 
 
-leftScore : Board -> Int
-leftScore board =
-    Set.filter (\c -> first c < board.size // 2) board.aliveCells
+playerScore : Int -> AliveCells -> Int
+playerScore boardSize aliveCells =
+    Set.filter (\c -> first c < boardSize // 2) aliveCells
         |> Set.size
 
 
-rightScore : Board -> Int
-rightScore board =
-    Set.filter (\c -> first c >= board.size // 2) board.aliveCells
-        |> Set.size
+enemyScore : Int -> AliveCells -> Int
+enemyScore boardSize aliveCells =
+    Set.size aliveCells - playerScore boardSize aliveCells
 
 
 unwrapInteractiveSelection : InteractiveSelection -> Selection
@@ -229,7 +284,7 @@ unwrapInteractiveSelection interactiveSelection =
 
 entireSelection : Selection
 entireSelection =
-    ( ( 0, 0 ), ( defaultBoardSize, defaultBoardSize ) )
+    ( ( 0, 0 ), ( defaultBoardSize - 1, defaultBoardSize - 1 ) )
 
 
 sortSelection : Selection -> Selection
@@ -269,15 +324,15 @@ randomSelection boardSize =
     Random.pair (randomCell boardSize) (randomCell boardSize)
 
 
-moveSelection : Selection -> MoveSelection -> Selection
-moveSelection selection { selectionCorner, direction } =
+moveSelection : Int -> Selection -> MoveSelection -> Selection
+moveSelection boardSize selection { selectionCorner, direction } =
     let
         ( otherCell, cell ) =
             case selectionCorner of
-                Start ->
-                    ( second selection, first selection )
+                LeftTop ->
+                    pairSwap selection
 
-                End ->
+                BottomRight ->
                     selection
 
         delta =
@@ -295,7 +350,7 @@ moveSelection selection { selectionCorner, direction } =
                     ( 1, 0 )
 
         newCell =
-            Tuple.mapBoth ((+) (first delta)) ((+) (second delta)) cell
+            clampCell boardSize <| addCell cell delta
     in
     sortSelection ( newCell, otherCell )
 
@@ -303,7 +358,8 @@ moveSelection selection { selectionCorner, direction } =
 type Msg
     = None
     | Reset
-    | SetBoard Board
+    | Tick Time.Posix
+    | SetAliveCells AliveCells
     | EndPlayerTurn
     | StartSelection Cell
     | UpdateSelection Cell
@@ -312,8 +368,25 @@ type Msg
     | ProcessControl (Maybe Control)
 
 
+endPlayerTurn : Model -> ( Model, Cmd Msg )
+endPlayerTurn model =
+    let
+        currentAliveCells =
+            (Anim.current model.state).aliveCells
+    in
+    ( model, Random.generate EnemyTurn (randomSelection model.boardSize) )
+
+
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
+    let
+        currentState : State
+        currentState =
+            Anim.current model.state
+
+        currentAliveCells =
+            currentState.aliveCells
+    in
     case msg of
         None ->
             ( model, Cmd.none )
@@ -321,62 +394,101 @@ update msg model =
         Reset ->
             init ()
 
-        SetBoard board ->
-            ( { model | board = board }, Cmd.none )
-
-        ProcessControl maybeControl ->
-            ( case maybeControl of
-                Just (Move control) ->
-                    { model | playerSelection = Completed <| moveSelection (unwrapInteractiveSelection model.playerSelection) control }
-
-                Nothing ->
-                    model
+        Tick time ->
+            ( Anim.update time animator model
             , Cmd.none
             )
 
+        SetAliveCells aliveCells ->
+            ( { model | state = Anim.go Anim.immediately { aliveCells = aliveCells, playerSelection = currentState.playerSelection, turnState = Idle } model.state }
+            , Cmd.none
+            )
+
+        ProcessControl maybeControl ->
+            case maybeControl of
+                Just (Move control) ->
+                    let
+                        playerSelection =
+                            Completed <| moveSelection model.boardSize (unwrapInteractiveSelection currentState.playerSelection) control
+                    in
+                    ( { model
+                        | state = Anim.go Anim.immediately { currentState | playerSelection = playerSelection } model.state
+                      }
+                    , Cmd.none
+                    )
+
+                Just EndTurn ->
+                    endPlayerTurn model
+
+                Just ControlReset ->
+                    init ()
+
+                Nothing ->
+                    ( model, Cmd.none )
+
         StartSelection cell ->
-            ( { model | playerSelection = Partial { start = cell, lastHovered = cell } }
+            let
+                playerSelection =
+                    Partial { start = cell, lastHovered = cell }
+            in
+            ( { model
+                | state = Anim.go Anim.immediately { currentState | playerSelection = playerSelection } model.state
+              }
             , Cmd.none
             )
 
         UpdateSelection cell ->
             let
                 playerSelection =
-                    case model.playerSelection of
+                    case currentState.playerSelection of
                         Partial { start } ->
                             Partial { start = start, lastHovered = cell }
 
                         _ ->
-                            model.playerSelection
+                            currentState.playerSelection
             in
-            ( { model | playerSelection = playerSelection }
+            ( { model
+                | state = Anim.go Anim.immediately { currentState | playerSelection = playerSelection } model.state
+              }
             , Cmd.none
             )
 
         EndSelection ->
             let
                 playerSelection =
-                    case model.playerSelection of
+                    case currentState.playerSelection of
                         Partial { start, lastHovered } ->
                             Completed ( start, lastHovered )
 
                         _ ->
-                            model.playerSelection
+                            currentState.playerSelection
             in
-            ( { model | playerSelection = playerSelection }
+            ( { model
+                | state = Anim.go Anim.immediately { currentState | playerSelection = playerSelection } model.state
+              }
             , Cmd.none
             )
 
         EndPlayerTurn ->
-            ( model
-            , Random.generate EnemyTurn (randomSelection model.board.size)
-            )
+            endPlayerTurn model
 
         EnemyTurn enemySelection ->
+            let
+                newBoard : AliveCells
+                newBoard =
+                    nextAliveCellsBySelections enemySelection (unwrapInteractiveSelection currentState.playerSelection) model.boardSize currentAliveCells
+
+                steps =
+                    [ Anim.event Anim.verySlowly { currentState | turnState = ShowSelections enemySelection }
+                    , Anim.wait <| Anim.millis 1000
+                    , Anim.event (Anim.millis 1000) { currentState | turnState = ShowSelections enemySelection, aliveCells = newBoard }
+                    , Anim.wait <| Anim.millis 1000
+                    , Anim.event Anim.verySlowly { currentState | turnState = Idle, aliveCells = newBoard }
+                    ]
+            in
             ( { model
-                | enemySelection = enemySelection
-                , board = nextBoard model.board enemySelection <| unwrapInteractiveSelection model.playerSelection
-                , turnCount = model.turnCount + 1
+                | turnCount = model.turnCount + 1
+                , state = Anim.queue steps model.state
               }
             , Cmd.none
             )
@@ -392,8 +504,8 @@ neighbours boardSize cell =
                 |> Set.fromList
 
         onGrid : Cell -> Bool
-        onGrid c =
-            first c >= 0 && first c < boardSize && second c >= 0 && second c < boardSize
+        onGrid =
+            cellInSelection entireSelection
 
         cells : Set Cell
         cells =
@@ -403,25 +515,16 @@ neighbours boardSize cell =
     cells
 
 
-nextBoard : Board -> Selection -> Selection -> Board
-nextBoard board selection1 selection2 =
+nextAliveCellsByPredicate : (Cell -> Bool) -> Int -> AliveCells -> AliveCells
+nextAliveCellsByPredicate predicate boardSize aliveCells =
     let
         processCell : ( Cell, Int ) -> Maybe Cell
         processCell ( cell, aliveNeighbours ) =
             let
                 alive =
-                    Set.member cell board.aliveCells
-
-                inSelection1 =
-                    cellInSelection selection1 cell
-
-                inSelection2 =
-                    cellInSelection selection2 cell
-
-                active =
-                    xor inSelection1 inSelection2
+                    Set.member cell aliveCells
             in
-            if active then
+            if predicate cell then
                 case ( alive, aliveNeighbours ) of
                     ( True, 2 ) ->
                         Just cell
@@ -435,21 +538,32 @@ nextBoard board selection1 selection2 =
                     _ ->
                         Nothing
 
-            else if Set.member cell board.aliveCells then
+            else if Set.member cell aliveCells then
                 Just cell
 
             else
                 Nothing
-
-        cells =
-            Set.toList board.aliveCells
-                |> List.concatMap (neighbours board.size >> Set.toList)
-                |> List.Extra.gatherEquals
-                |> List.map (Tuple.mapSecond (\s -> 1 + List.length s))
-                |> List.filterMap processCell
-                |> Set.fromList
     in
-    { board | aliveCells = cells }
+    Set.toList aliveCells
+        |> List.concatMap (neighbours boardSize >> Set.toList)
+        |> List.Extra.gatherEquals
+        |> List.map (Tuple.mapSecond (\s -> 1 + List.length s))
+        |> List.filterMap processCell
+        |> Set.fromList
+
+
+nextAliveCellsBySelections : Selection -> Selection -> Int -> AliveCells -> AliveCells
+nextAliveCellsBySelections selection1 selection2 =
+    let
+        predicate cell =
+            xor (cellInSelection selection1 cell) (cellInSelection selection2 cell)
+    in
+    nextAliveCellsByPredicate predicate
+
+
+nextAliveCells : Int -> AliveCells -> AliveCells
+nextAliveCells =
+    nextAliveCellsByPredicate <| always True
 
 
 dracula :
@@ -490,60 +604,114 @@ scaledInt =
     scaled >> round
 
 
-viewBoard : Model -> Board -> Element Msg
-viewBoard model board =
+leaf : List (Attribute msg) -> Element msg
+leaf attrs =
+    el attrs Element.none
+
+
+pattern : Element.Attribute msg
+pattern =
+    Html.Attributes.style "background" "radial-gradient(#f8f8f2 2px, transparent 2px),radial-gradient(#f8f8f2 2px, transparent 2px)"
+        |> Element.htmlAttribute
+
+
+classNameToAttribute : String -> Attribute msg
+classNameToAttribute =
+    Html.Attributes.class >> Element.htmlAttribute
+
+
+shallowPatternClass : Element.Attribute msg
+shallowPatternClass =
+    classNameToAttribute "shallow-pattern"
+
+
+cellPatternClass : Element.Attribute msg
+cellPatternClass =
+    classNameToAttribute "cell-pattern"
+
+
+viewBoard : Model -> Element Msg
+viewBoard model =
     let
-        nextStepBoard =
-            nextBoard board ( ( -1, -1 ), ( -1, -1 ) ) entireSelection
+        currentState =
+            Anim.current model.state
+
+        previousState =
+            Anim.previous model.state
+
+        currentAliveCells =
+            currentState.aliveCells
+
+        nextStepAliveCells =
+            nextAliveCells model.boardSize currentAliveCells
 
         playerSelection =
-            unwrapInteractiveSelection model.playerSelection
+            unwrapInteractiveSelection currentState.playerSelection
 
         viewCell : Cell -> Element Msg
         viewCell cell =
             let
-                alive =
-                    Set.member cell board.aliveCells
+                currentAlive =
+                    Set.member cell currentAliveCells
 
                 nextAlive =
-                    Set.member cell nextStepBoard.aliveCells
+                    Set.member cell nextStepAliveCells
 
                 inSelection =
                     cellInSelection playerSelection cell
 
                 aliveColor =
-                    if inSelection then
-                        dracula.foreground
+                    let
+                        convertColor =
+                            Element.toRgb >> Color.fromRgba
 
-                    else
-                        dracula.comment
+                        activeColor =
+                            convertColor dracula.foreground
 
-                attributes =
-                    if alive then
-                        [ Background.color aliveColor ]
+                        inactiveColor : Color.Color
+                        inactiveColor =
+                            convertColor dracula.comment
 
-                    else
-                        [ Border.color dracula.currentLine
-                        , Border.width 2
-                        , Border.dotted
-                        ]
+                        idleActivePredicate =
+                            cellInSelection playerSelection
 
-                indicatorSize =
-                    px 6
+                        showSelectionsActivePredicate selection1 selection2 c =
+                            xor (cellInSelection selection1 c) (cellInSelection selection2 c)
+
+                        cellColorByPredicate predicate c =
+                            if predicate c then
+                                activeColor
+
+                            else
+                                inactiveColor
+                    in
+                    fromRgb <|
+                        Color.toRgba <|
+                            Anim.color model.state <|
+                                \state ->
+                                    case state.turnState of
+                                        Idle ->
+                                            cellColorByPredicate idleActivePredicate cell
+
+                                        ShowSelections enemySelection ->
+                                            cellColorByPredicate (showSelectionsActivePredicate playerSelection enemySelection) cell
 
                 indicator color =
+                    let
+                        indicatorSize =
+                            px 6
+                    in
                     inFront <|
-                        el
+                        leaf
                             [ centerX
                             , centerY
                             , width indicatorSize
                             , height indicatorSize
                             , Background.color color
                             ]
-                            Element.none
 
                 nextStateAttribues =
-                    case ( alive, nextAlive ) of
+                    case ( currentAlive, nextAlive ) of
                         ( True, False ) ->
                             [ indicator dracula.background ]
 
@@ -552,25 +720,59 @@ viewBoard model board =
 
                         _ ->
                             []
-            in
-            el
-                [ width <| px 50
-                , height <| px 50
-                , padding 6
-                , onMouseDown <| StartSelection cell
-                , onMouseEnter <| UpdateSelection cell
-                ]
-            <|
-                el
-                    (List.concat
+
+                scale =
+                    Anim.linear model.state <|
+                        \state ->
+                            Anim.at <|
+                                if Set.member cell state.aliveCells then
+                                    1
+
+                                else
+                                    0
+
+                mouseDownEvent =
+                    case currentState.turnState of
+                        Idle ->
+                            StartSelection cell
+
+                        _ ->
+                            None
+
+                mouseEnterEvent =
+                    case ( currentState.playerSelection, currentState.turnState ) of
+                        ( Partial _, Idle ) ->
+                            UpdateSelection cell
+
+                        _ ->
+                            None
+
+                backgroundAttributes =
+                    [ width <| px 50
+                    , height <| px 50
+                    , padding 6
+                    , onMouseDown mouseDownEvent
+                    , onMouseEnter mouseEnterEvent
+                    ]
+
+                wrapperAttributes =
+                    List.concat
                         [ [ width fill
                           , height fill
+                          , cellPatternClass
                           ]
-                        , attributes
                         , nextStateAttribues
                         ]
-                    )
-                    Element.none
+
+                cellLeaf =
+                    leaf <|
+                        [ width fill
+                        , height fill
+                        , Element.scale scale
+                        , Background.color aliveColor
+                        ]
+            in
+            el backgroundAttributes <| el wrapperAttributes cellLeaf
 
         viewRow : Int -> Element Msg
         viewRow y =
@@ -579,7 +781,7 @@ viewBoard model board =
                 , height <| fillPortion 1
                 ]
             <|
-                initialize board.size <|
+                initialize model.boardSize <|
                     \x -> viewCell ( x, y )
 
         viewSelection : Int -> PlayerType -> Selection -> Element msg
@@ -589,7 +791,7 @@ viewBoard model board =
                     sortSelection selection
 
                 ( endX, endY ) =
-                    Tuple.mapBoth ((+) 1) ((+) 1) end
+                    addCell end ( 1, 1 )
 
                 selectionWidth =
                     endX - startX
@@ -609,101 +811,151 @@ viewBoard model board =
                             dracula.foreground
 
                         Enemy ->
-                            dracula.comment
+                            dracula.foreground
+
+                -- dracula.comment
             in
             column
                 [ width fill
                 , height fill
                 , padding 10
                 ]
-            <|
-                [ el [ width fill, height <| fillPortion <| startY ] Element.none
+                [ leaf [ width fill, height <| fillPortion <| startY ]
                 , row
                     [ width fill, height <| fillPortion <| selectionHeight ]
-                    [ el [ height fill, width <| fillPortion <| startX ] Element.none
+                    [ leaf [ height fill, width <| fillPortion <| startX ]
                     , el
                         [ height fill
                         , width <| fillPortion <| selectionWidth
                         ]
                       <|
-                        el
+                        leaf
                             [ height fill
                             , width fill
                             , Border.width 2
                             , Border.color color
                             , Border.dashed
                             ]
-                            Element.none
-                    , el [ height fill, width <| fillPortion <| remainsX ] Element.none
+                    , leaf [ height fill, width <| fillPortion <| remainsX ]
                     ]
-                , el [ width fill, height <| fillPortion <| remainsY ] Element.none
+                , leaf [ width fill, height <| fillPortion <| remainsY ]
                 ]
 
         centerDelimiter =
             behindContent <|
                 row [ width fill, height fill ] <|
-                    [ el
+                    [ leaf
                         [ width <| fillPortion 1
                         , height fill
                         , Border.widthEach { bottom = 0, top = 0, left = 0, right = 2 }
                         , Border.color dracula.currentLine
                         , Border.dotted
                         ]
-                        Element.none
-                    , el [ width <| fillPortion 1, height fill ] Element.none
+                    , leaf [ width <| fillPortion 1, height fill ]
                     ]
+
+        enemySelectionAttribute =
+            let
+                alpha =
+                    Anim.linear model.state <|
+                        \newState ->
+                            Anim.at <|
+                                case newState.turnState of
+                                    ShowSelections _ ->
+                                        1
+
+                                    _ ->
+                                        0
+
+                selection sel =
+                    [ behindContent <| el [ width fill, height fill, Element.alpha alpha ] <| viewSelection model.boardSize Enemy sel ]
+            in
+            case ( previousState.turnState, currentState.turnState ) of
+                ( ShowSelections enemySelection, _ ) ->
+                    selection enemySelection
+
+                ( _, ShowSelections enemySelection ) ->
+                    selection enemySelection
+
+                _ ->
+                    []
     in
     el
         [ width <| shrink
         , height <| shrink
-        , Border.color dracula.currentLine
-        , Border.dotted
+        , Background.color dracula.background
         , Border.width 2
+        , Border.color dracula.currentLine
         , centerDelimiter
         ]
     <|
         column
-            [ width fill
-            , height fill
-            , padding 10
-            , behindContent <| viewSelection board.size Player playerSelection
-            , behindContent <| viewSelection board.size Enemy model.enemySelection
-            ]
+            (List.concat
+                [ [ width fill
+                  , height fill
+                  , padding 10
+                  , behindContent <| viewSelection model.boardSize Player playerSelection
+                  ]
+                , enemySelectionAttribute
+                ]
+            )
         <|
-            initialize board.size viewRow
+            initialize model.boardSize viewRow
 
 
 layout : Model -> Element Msg
 layout model =
     let
+        currentState =
+            Anim.current model.state
+
+        currentAliveCells =
+            currentState.aliveCells
+
+        mouseUpEvent =
+            case currentState.turnState of
+                Idle ->
+                    EndSelection
+
+                _ ->
+                    None
+
         root =
             el
                 [ width fill
                 , height fill
                 , padding <| scaledInt 1
                 , Background.color dracula.background
+                , shallowPatternClass
                 , Font.family [ Font.typeface "Inter" ]
                 , Font.color dracula.foreground
-                , onMouseUp EndSelection
+                , onMouseUp mouseUpEvent
                 ]
 
         score =
+            let
+                textFromInt =
+                    text << String.fromInt
+            in
             row
                 [ width fill
                 , height shrink
+                , Font.size 30
+                , Font.variant Font.tabularNumbers
                 ]
-                [ el [ alignLeft, Font.size 30 ] <| text <| toString <| leftScore model.board
-                , el [ centerX, Font.size 40, Font.color dracula.comment ] <| text <| toString model.turnCount
-                , el [ alignRight, Font.size 30 ] <| text <| toString <| rightScore model.board
+                [ el [ width <| fillPortion 1, Font.alignLeft ] <| textFromInt <| playerScore model.boardSize currentAliveCells
+                , el [ width <| fillPortion 1, Font.center, Font.size 40, Font.color dracula.comment ] <| textFromInt model.turnCount
+                , el [ width <| fillPortion 1, Font.alignRight ] <| textFromInt <| enemyScore model.boardSize currentAliveCells
                 ]
 
         board =
-            viewBoard model model.board
+            viewBoard model
 
         nextTurnButton =
             button
                 [ width fill
                 , padding 15
+                , Background.color dracula.background
                 , Border.color dracula.foreground
                 , Border.width 2
                 , Font.center
@@ -715,6 +967,7 @@ layout model =
             button
                 [ width fill
                 , padding 15
+                , Background.color dracula.background
                 , Border.color dracula.comment
                 , Font.color dracula.comment
                 , Border.width 2

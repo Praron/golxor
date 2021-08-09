@@ -1,0 +1,12 @@
+.shallow-pattern {
+  background-image: radial-gradient(#44475a .5px, transparent .5px);
+  background-size: 5px  5px;
+}
+
+.cell-pattern {
+  background-image: radial-gradient(#44475a 1px, transparent 1px);
+  background-size: 6.5px 6.5px;
+}
+
+
+/*# sourceMappingURL=/style.e308ff8e.css.map */
