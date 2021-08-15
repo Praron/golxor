@@ -193,6 +193,7 @@ type alias AliveCells =
 
 type TurnState
     = Idle
+    | StartAnimation
     | ShowSelections Selection
 
 
@@ -355,6 +356,23 @@ moveSelection boardSize selection { selectionCorner, direction } =
     sortSelection ( newCell, otherCell )
 
 
+canInteract : Anim.Timeline State -> Bool
+canInteract timeline =
+    let
+        current =
+            Anim.current timeline
+
+        arrived =
+            Anim.arrived timeline
+    in
+    case ( current.turnState, arrived.turnState ) of
+        ( Idle, Idle ) ->
+            True
+
+        _ ->
+            False
+
+
 type Msg
     = None
     | Reset
@@ -370,17 +388,16 @@ type Msg
 
 endPlayerTurn : Model -> ( Model, Cmd Msg )
 endPlayerTurn model =
-    let
-        currentAliveCells =
-            (Anim.current model.state).aliveCells
-    in
-    ( model, Random.generate EnemyTurn (randomSelection model.boardSize) )
+    if canInteract model.state then
+        ( model, Random.generate EnemyTurn (randomSelection model.boardSize) )
+
+    else
+        ( model, Cmd.none )
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     let
-        currentState : State
         currentState =
             Anim.current model.state
 
@@ -479,11 +496,12 @@ update msg model =
                     nextAliveCellsBySelections enemySelection (unwrapInteractiveSelection currentState.playerSelection) model.boardSize currentAliveCells
 
                 steps =
-                    [ Anim.event Anim.verySlowly { currentState | turnState = ShowSelections enemySelection }
-                    , Anim.wait <| Anim.millis 1000
-                    , Anim.event (Anim.millis 1000) { currentState | turnState = ShowSelections enemySelection, aliveCells = newBoard }
-                    , Anim.wait <| Anim.millis 1000
-                    , Anim.event Anim.verySlowly { currentState | turnState = Idle, aliveCells = newBoard }
+                    [ Anim.event Anim.immediately { currentState | turnState = StartAnimation }
+                    , Anim.event Anim.quickly { currentState | turnState = ShowSelections enemySelection }
+                    , Anim.wait <| Anim.millis 500
+                    , Anim.event Anim.quickly { currentState | turnState = ShowSelections enemySelection, aliveCells = newBoard }
+                    , Anim.wait <| Anim.millis 500
+                    , Anim.event Anim.quickly { currentState | turnState = Idle, aliveCells = newBoard }
                     ]
             in
             ( { model
@@ -630,20 +648,20 @@ cellPatternClass =
     classNameToAttribute "cell-pattern"
 
 
-viewBoard : Model -> Element Msg
-viewBoard model =
+viewBoard : Int -> Anim.Timeline State -> Element Msg
+viewBoard boardSize stateTimeline =
     let
         currentState =
-            Anim.current model.state
+            Anim.current stateTimeline
 
         previousState =
-            Anim.previous model.state
+            Anim.previous stateTimeline
 
         currentAliveCells =
             currentState.aliveCells
 
         nextStepAliveCells =
-            nextAliveCells model.boardSize currentAliveCells
+            nextAliveCells boardSize currentAliveCells
 
         playerSelection =
             unwrapInteractiveSelection currentState.playerSelection
@@ -656,9 +674,6 @@ viewBoard model =
 
                 nextAlive =
                     Set.member cell nextStepAliveCells
-
-                inSelection =
-                    cellInSelection playerSelection cell
 
                 aliveColor =
                     let
@@ -687,10 +702,13 @@ viewBoard model =
                     in
                     fromRgb <|
                         Color.toRgba <|
-                            Anim.color model.state <|
+                            Anim.color stateTimeline <|
                                 \state ->
                                     case state.turnState of
                                         Idle ->
+                                            cellColorByPredicate idleActivePredicate cell
+
+                                        StartAnimation ->
                                             cellColorByPredicate idleActivePredicate cell
 
                                         ShowSelections enemySelection ->
@@ -722,7 +740,7 @@ viewBoard model =
                             []
 
                 scale =
-                    Anim.linear model.state <|
+                    Anim.linear stateTimeline <|
                         \state ->
                             Anim.at <|
                                 if Set.member cell state.aliveCells then
@@ -781,11 +799,11 @@ viewBoard model =
                 , height <| fillPortion 1
                 ]
             <|
-                initialize model.boardSize <|
+                initialize boardSize <|
                     \x -> viewCell ( x, y )
 
-        viewSelection : Int -> PlayerType -> Selection -> Element msg
-        viewSelection boardSize player selection =
+        viewSelection : PlayerType -> Selection -> Element msg
+        viewSelection player selection =
             let
                 ( ( startX, startY ), end ) =
                     sortSelection selection
@@ -804,16 +822,6 @@ viewBoard model =
 
                 remainsY =
                     boardSize - endY
-
-                color =
-                    case player of
-                        Player ->
-                            dracula.foreground
-
-                        Enemy ->
-                            dracula.foreground
-
-                -- dracula.comment
             in
             column
                 [ width fill
@@ -833,7 +841,7 @@ viewBoard model =
                             [ height fill
                             , width fill
                             , Border.width 2
-                            , Border.color color
+                            , Border.color dracula.foreground
                             , Border.dashed
                             ]
                     , leaf [ height fill, width <| fillPortion <| remainsX ]
@@ -857,7 +865,7 @@ viewBoard model =
         enemySelectionAttribute =
             let
                 alpha =
-                    Anim.linear model.state <|
+                    Anim.linear stateTimeline <|
                         \newState ->
                             Anim.at <|
                                 case newState.turnState of
@@ -868,7 +876,7 @@ viewBoard model =
                                         0
 
                 selection sel =
-                    [ behindContent <| el [ width fill, height fill, Element.alpha alpha ] <| viewSelection model.boardSize Enemy sel ]
+                    [ behindContent <| el [ width fill, height fill, Element.alpha alpha ] <| viewSelection Enemy sel ]
             in
             case ( previousState.turnState, currentState.turnState ) of
                 ( ShowSelections enemySelection, _ ) ->
@@ -894,13 +902,13 @@ viewBoard model =
                 [ [ width fill
                   , height fill
                   , padding 10
-                  , behindContent <| viewSelection model.boardSize Player playerSelection
+                  , behindContent <| viewSelection Player playerSelection
                   ]
                 , enemySelectionAttribute
                 ]
             )
         <|
-            initialize model.boardSize viewRow
+            initialize boardSize viewRow
 
 
 layout : Model -> Element Msg
@@ -913,8 +921,8 @@ layout model =
             currentState.aliveCells
 
         mouseUpEvent =
-            case currentState.turnState of
-                Idle ->
+            case ( currentState.turnState, currentState.playerSelection ) of
+                ( Idle, Partial _ ) ->
                     EndSelection
 
                 _ ->
@@ -949,14 +957,23 @@ layout model =
                 ]
 
         board =
-            viewBoard model
+            viewBoard model.boardSize model.state
 
         nextTurnButton =
+            let
+                color =
+                    if canInteract model.state then
+                        dracula.foreground
+
+                    else
+                        dracula.currentLine
+            in
             button
                 [ width fill
                 , padding 15
                 , Background.color dracula.background
-                , Border.color dracula.foreground
+                , Font.color color
+                , Border.color color
                 , Border.width 2
                 , Font.center
                 , Font.bold

@@ -12732,9 +12732,49 @@ var $author$project$Main$Partial = function (a) {
 var $author$project$Main$ShowSelections = function (a) {
 	return {$: 'ShowSelections', a: a};
 };
+var $author$project$Main$StartAnimation = {$: 'StartAnimation'};
 var $mdgriffith$elm_animator$Animator$current = $mdgriffith$elm_animator$Internal$Timeline$current;
 var $author$project$Main$EnemyTurn = function (a) {
 	return {$: 'EnemyTurn', a: a};
+};
+var $mdgriffith$elm_animator$Internal$Timeline$arrived = function (timeline) {
+	var details = timeline.a;
+	return A3(
+		$mdgriffith$elm_animator$Internal$Timeline$foldp,
+		$elm$core$Basics$identity,
+		{
+			adjustor: function (_v0) {
+				return $mdgriffith$elm_animator$Internal$Timeline$linearDefault;
+			},
+			dwellPeriod: function (_v1) {
+				return $elm$core$Maybe$Nothing;
+			},
+			lerp: F7(
+				function (_v2, _v3, _v4, _v5, _v6, _v7, state) {
+					return state;
+				}),
+			start: function (_v8) {
+				return details.initial;
+			},
+			visit: F5(
+				function (lookup, target, targetTime, maybeLookAhead, state) {
+					return $mdgriffith$elm_animator$Internal$Timeline$getEvent(target);
+				})
+		},
+		timeline);
+};
+var $mdgriffith$elm_animator$Animator$arrived = $mdgriffith$elm_animator$Internal$Timeline$arrived;
+var $author$project$Main$canInteract = function (timeline) {
+	var current = $mdgriffith$elm_animator$Animator$current(timeline);
+	var arrived = $mdgriffith$elm_animator$Animator$arrived(timeline);
+	var _v0 = _Utils_Tuple2(current.turnState, arrived.turnState);
+	if ((_v0.a.$ === 'Idle') && (_v0.b.$ === 'Idle')) {
+		var _v1 = _v0.a;
+		var _v2 = _v0.b;
+		return true;
+	} else {
+		return false;
+	}
 };
 var $author$project$Main$randomSelection = function (boardSize) {
 	return A2(
@@ -12743,13 +12783,12 @@ var $author$project$Main$randomSelection = function (boardSize) {
 		$author$project$Main$randomCell(boardSize));
 };
 var $author$project$Main$endPlayerTurn = function (model) {
-	var currentAliveCells = $mdgriffith$elm_animator$Animator$current(model.state).aliveCells;
-	return _Utils_Tuple2(
+	return $author$project$Main$canInteract(model.state) ? _Utils_Tuple2(
 		model,
 		A2(
 			$elm$random$Random$generate,
 			$author$project$Main$EnemyTurn,
-			$author$project$Main$randomSelection(model.boardSize)));
+			$author$project$Main$randomSelection(model.boardSize))) : _Utils_Tuple2(model, $elm$core$Platform$Cmd$none);
 };
 var $mdgriffith$elm_animator$Animator$TransitionTo = F2(
 	function (a, b) {
@@ -13245,6 +13284,7 @@ var $mdgriffith$elm_animator$Animator$queue = F2(
 					running: true
 				}));
 	});
+var $mdgriffith$elm_animator$Animator$quickly = $mdgriffith$elm_animator$Animator$millis(200);
 var $author$project$Main$unwrapInteractiveSelection = function (interactiveSelection) {
 	if (interactiveSelection.$ === 'Partial') {
 		var start = interactiveSelection.a.start;
@@ -13260,7 +13300,6 @@ var $mdgriffith$elm_animator$Animator$update = F3(
 		var updateModel = _v0.b;
 		return A2(updateModel, newTime, model);
 	});
-var $mdgriffith$elm_animator$Animator$verySlowly = $mdgriffith$elm_animator$Animator$millis(500);
 var $mdgriffith$elm_animator$Animator$Wait = function (a) {
 	return {$: 'Wait', a: a};
 };
@@ -13408,17 +13447,23 @@ var $author$project$Main$update = F2(
 					[
 						A2(
 						$mdgriffith$elm_animator$Animator$event,
-						$mdgriffith$elm_animator$Animator$verySlowly,
+						$mdgriffith$elm_animator$Animator$immediately,
+						_Utils_update(
+							currentState,
+							{turnState: $author$project$Main$StartAnimation})),
+						A2(
+						$mdgriffith$elm_animator$Animator$event,
+						$mdgriffith$elm_animator$Animator$quickly,
 						_Utils_update(
 							currentState,
 							{
 								turnState: $author$project$Main$ShowSelections(enemySelection)
 							})),
 						$mdgriffith$elm_animator$Animator$wait(
-						$mdgriffith$elm_animator$Animator$millis(1000)),
+						$mdgriffith$elm_animator$Animator$millis(500)),
 						A2(
 						$mdgriffith$elm_animator$Animator$event,
-						$mdgriffith$elm_animator$Animator$millis(1000),
+						$mdgriffith$elm_animator$Animator$quickly,
 						_Utils_update(
 							currentState,
 							{
@@ -13426,10 +13471,10 @@ var $author$project$Main$update = F2(
 								turnState: $author$project$Main$ShowSelections(enemySelection)
 							})),
 						$mdgriffith$elm_animator$Animator$wait(
-						$mdgriffith$elm_animator$Animator$millis(1000)),
+						$mdgriffith$elm_animator$Animator$millis(500)),
 						A2(
 						$mdgriffith$elm_animator$Animator$event,
-						$mdgriffith$elm_animator$Animator$verySlowly,
+						$mdgriffith$elm_animator$Animator$quickly,
 						_Utils_update(
 							currentState,
 							{aliveCells: newBoard, turnState: $author$project$Main$Idle}))
@@ -20175,353 +20220,349 @@ var $mdgriffith$elm_ui$Element$Border$widthEach = function (_v0) {
 			bottom,
 			left));
 };
-var $author$project$Main$viewBoard = function (model) {
-	var viewSelection = F3(
-		function (boardSize, player, selection) {
-			var color = function () {
-				if (player.$ === 'Player') {
-					return $author$project$Main$dracula.foreground;
-				} else {
-					return $author$project$Main$dracula.foreground;
-				}
-			}();
-			var _v7 = $author$project$Main$sortSelection(selection);
-			var _v8 = _v7.a;
-			var startX = _v8.a;
-			var startY = _v8.b;
-			var end = _v7.b;
-			var _v9 = A2(
-				$author$project$Main$addCell,
-				end,
-				_Utils_Tuple2(1, 1));
-			var endX = _v9.a;
-			var endY = _v9.b;
-			var remainsX = boardSize - endX;
-			var remainsY = boardSize - endY;
-			var selectionWidth = endX - startX;
-			var selectionHeight = endY - startY;
-			return A2(
-				$mdgriffith$elm_ui$Element$column,
-				_List_fromArray(
-					[
-						$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
-						$mdgriffith$elm_ui$Element$height($mdgriffith$elm_ui$Element$fill),
-						$mdgriffith$elm_ui$Element$padding(10)
-					]),
-				_List_fromArray(
-					[
-						$author$project$Main$leaf(
-						_List_fromArray(
-							[
-								$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
-								$mdgriffith$elm_ui$Element$height(
-								$mdgriffith$elm_ui$Element$fillPortion(startY))
-							])),
-						A2(
-						$mdgriffith$elm_ui$Element$row,
-						_List_fromArray(
-							[
-								$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
-								$mdgriffith$elm_ui$Element$height(
-								$mdgriffith$elm_ui$Element$fillPortion(selectionHeight))
-							]),
-						_List_fromArray(
-							[
-								$author$project$Main$leaf(
-								_List_fromArray(
-									[
-										$mdgriffith$elm_ui$Element$height($mdgriffith$elm_ui$Element$fill),
-										$mdgriffith$elm_ui$Element$width(
-										$mdgriffith$elm_ui$Element$fillPortion(startX))
-									])),
-								A2(
-								$mdgriffith$elm_ui$Element$el,
-								_List_fromArray(
-									[
-										$mdgriffith$elm_ui$Element$height($mdgriffith$elm_ui$Element$fill),
-										$mdgriffith$elm_ui$Element$width(
-										$mdgriffith$elm_ui$Element$fillPortion(selectionWidth))
-									]),
-								$author$project$Main$leaf(
+var $author$project$Main$viewBoard = F2(
+	function (boardSize, stateTimeline) {
+		var viewSelection = F2(
+			function (player, selection) {
+				var _v7 = $author$project$Main$sortSelection(selection);
+				var _v8 = _v7.a;
+				var startX = _v8.a;
+				var startY = _v8.b;
+				var end = _v7.b;
+				var _v9 = A2(
+					$author$project$Main$addCell,
+					end,
+					_Utils_Tuple2(1, 1));
+				var endX = _v9.a;
+				var endY = _v9.b;
+				var remainsX = boardSize - endX;
+				var remainsY = boardSize - endY;
+				var selectionWidth = endX - startX;
+				var selectionHeight = endY - startY;
+				return A2(
+					$mdgriffith$elm_ui$Element$column,
+					_List_fromArray(
+						[
+							$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
+							$mdgriffith$elm_ui$Element$height($mdgriffith$elm_ui$Element$fill),
+							$mdgriffith$elm_ui$Element$padding(10)
+						]),
+					_List_fromArray(
+						[
+							$author$project$Main$leaf(
+							_List_fromArray(
+								[
+									$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
+									$mdgriffith$elm_ui$Element$height(
+									$mdgriffith$elm_ui$Element$fillPortion(startY))
+								])),
+							A2(
+							$mdgriffith$elm_ui$Element$row,
+							_List_fromArray(
+								[
+									$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
+									$mdgriffith$elm_ui$Element$height(
+									$mdgriffith$elm_ui$Element$fillPortion(selectionHeight))
+								]),
+							_List_fromArray(
+								[
+									$author$project$Main$leaf(
 									_List_fromArray(
 										[
 											$mdgriffith$elm_ui$Element$height($mdgriffith$elm_ui$Element$fill),
-											$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
-											$mdgriffith$elm_ui$Element$Border$width(2),
-											$mdgriffith$elm_ui$Element$Border$color(color),
-											$mdgriffith$elm_ui$Element$Border$dashed
-										]))),
-								$author$project$Main$leaf(
-								_List_fromArray(
-									[
-										$mdgriffith$elm_ui$Element$height($mdgriffith$elm_ui$Element$fill),
-										$mdgriffith$elm_ui$Element$width(
-										$mdgriffith$elm_ui$Element$fillPortion(remainsX))
-									]))
-							])),
-						$author$project$Main$leaf(
-						_List_fromArray(
-							[
-								$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
-								$mdgriffith$elm_ui$Element$height(
-								$mdgriffith$elm_ui$Element$fillPortion(remainsY))
-							]))
-					]));
-		});
-	var previousState = $mdgriffith$elm_animator$Animator$previous(model.state);
-	var currentState = $mdgriffith$elm_animator$Animator$current(model.state);
-	var enemySelectionAttribute = function () {
-		var alpha = A2(
-			$mdgriffith$elm_animator$Animator$linear,
-			model.state,
-			function (newState) {
-				return $mdgriffith$elm_animator$Animator$at(
-					function () {
-						var _v6 = newState.turnState;
-						if (_v6.$ === 'ShowSelections') {
-							return 1;
-						} else {
-							return 0;
-						}
-					}());
+											$mdgriffith$elm_ui$Element$width(
+											$mdgriffith$elm_ui$Element$fillPortion(startX))
+										])),
+									A2(
+									$mdgriffith$elm_ui$Element$el,
+									_List_fromArray(
+										[
+											$mdgriffith$elm_ui$Element$height($mdgriffith$elm_ui$Element$fill),
+											$mdgriffith$elm_ui$Element$width(
+											$mdgriffith$elm_ui$Element$fillPortion(selectionWidth))
+										]),
+									$author$project$Main$leaf(
+										_List_fromArray(
+											[
+												$mdgriffith$elm_ui$Element$height($mdgriffith$elm_ui$Element$fill),
+												$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
+												$mdgriffith$elm_ui$Element$Border$width(2),
+												$mdgriffith$elm_ui$Element$Border$color($author$project$Main$dracula.foreground),
+												$mdgriffith$elm_ui$Element$Border$dashed
+											]))),
+									$author$project$Main$leaf(
+									_List_fromArray(
+										[
+											$mdgriffith$elm_ui$Element$height($mdgriffith$elm_ui$Element$fill),
+											$mdgriffith$elm_ui$Element$width(
+											$mdgriffith$elm_ui$Element$fillPortion(remainsX))
+										]))
+								])),
+							$author$project$Main$leaf(
+							_List_fromArray(
+								[
+									$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
+									$mdgriffith$elm_ui$Element$height(
+									$mdgriffith$elm_ui$Element$fillPortion(remainsY))
+								]))
+						]));
 			});
-		var selection = function (sel) {
-			return _List_fromArray(
-				[
-					$mdgriffith$elm_ui$Element$behindContent(
-					A2(
-						$mdgriffith$elm_ui$Element$el,
-						_List_fromArray(
-							[
-								$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
-								$mdgriffith$elm_ui$Element$height($mdgriffith$elm_ui$Element$fill),
-								$mdgriffith$elm_ui$Element$alpha(alpha)
-							]),
-						A3(viewSelection, model.boardSize, $author$project$Main$Enemy, sel)))
-				]);
-		};
-		var _v5 = _Utils_Tuple2(previousState.turnState, currentState.turnState);
-		if (_v5.a.$ === 'ShowSelections') {
-			var enemySelection = _v5.a.a;
-			return selection(enemySelection);
-		} else {
-			if (_v5.b.$ === 'ShowSelections') {
-				var enemySelection = _v5.b.a;
+		var previousState = $mdgriffith$elm_animator$Animator$previous(stateTimeline);
+		var currentState = $mdgriffith$elm_animator$Animator$current(stateTimeline);
+		var enemySelectionAttribute = function () {
+			var alpha = A2(
+				$mdgriffith$elm_animator$Animator$linear,
+				stateTimeline,
+				function (newState) {
+					return $mdgriffith$elm_animator$Animator$at(
+						function () {
+							var _v6 = newState.turnState;
+							if (_v6.$ === 'ShowSelections') {
+								return 1;
+							} else {
+								return 0;
+							}
+						}());
+				});
+			var selection = function (sel) {
+				return _List_fromArray(
+					[
+						$mdgriffith$elm_ui$Element$behindContent(
+						A2(
+							$mdgriffith$elm_ui$Element$el,
+							_List_fromArray(
+								[
+									$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
+									$mdgriffith$elm_ui$Element$height($mdgriffith$elm_ui$Element$fill),
+									$mdgriffith$elm_ui$Element$alpha(alpha)
+								]),
+							A2(viewSelection, $author$project$Main$Enemy, sel)))
+					]);
+			};
+			var _v5 = _Utils_Tuple2(previousState.turnState, currentState.turnState);
+			if (_v5.a.$ === 'ShowSelections') {
+				var enemySelection = _v5.a.a;
 				return selection(enemySelection);
 			} else {
-				return _List_Nil;
-			}
-		}
-	}();
-	var playerSelection = $author$project$Main$unwrapInteractiveSelection(currentState.playerSelection);
-	var currentAliveCells = currentState.aliveCells;
-	var nextStepAliveCells = A2($author$project$Main$nextAliveCells, model.boardSize, currentAliveCells);
-	var viewCell = function (cell) {
-		var scale = A2(
-			$mdgriffith$elm_animator$Animator$linear,
-			model.state,
-			function (state) {
-				return $mdgriffith$elm_animator$Animator$at(
-					A2($elm$core$Set$member, cell, state.aliveCells) ? 1 : 0);
-			});
-		var nextAlive = A2($elm$core$Set$member, cell, nextStepAliveCells);
-		var mouseEnterEvent = function () {
-			var _v3 = _Utils_Tuple2(currentState.playerSelection, currentState.turnState);
-			if ((_v3.a.$ === 'Partial') && (_v3.b.$ === 'Idle')) {
-				var _v4 = _v3.b;
-				return $author$project$Main$UpdateSelection(cell);
-			} else {
-				return $author$project$Main$None;
-			}
-		}();
-		var mouseDownEvent = function () {
-			var _v2 = currentState.turnState;
-			if (_v2.$ === 'Idle') {
-				return $author$project$Main$StartSelection(cell);
-			} else {
-				return $author$project$Main$None;
-			}
-		}();
-		var indicator = function (color) {
-			var indicatorSize = $mdgriffith$elm_ui$Element$px(6);
-			return $mdgriffith$elm_ui$Element$inFront(
-				$author$project$Main$leaf(
-					_List_fromArray(
-						[
-							$mdgriffith$elm_ui$Element$centerX,
-							$mdgriffith$elm_ui$Element$centerY,
-							$mdgriffith$elm_ui$Element$width(indicatorSize),
-							$mdgriffith$elm_ui$Element$height(indicatorSize),
-							$mdgriffith$elm_ui$Element$Background$color(color)
-						])));
-		};
-		var inSelection = A2($author$project$Main$cellInSelection, playerSelection, cell);
-		var currentAlive = A2($elm$core$Set$member, cell, currentAliveCells);
-		var backgroundAttributes = _List_fromArray(
-			[
-				$mdgriffith$elm_ui$Element$width(
-				$mdgriffith$elm_ui$Element$px(50)),
-				$mdgriffith$elm_ui$Element$height(
-				$mdgriffith$elm_ui$Element$px(50)),
-				$mdgriffith$elm_ui$Element$padding(6),
-				$mdgriffith$elm_ui$Element$Events$onMouseDown(mouseDownEvent),
-				$mdgriffith$elm_ui$Element$Events$onMouseEnter(mouseEnterEvent)
-			]);
-		var aliveColor = function () {
-			var showSelectionsActivePredicate = F3(
-				function (selection1, selection2, c) {
-					return A2($author$project$Main$cellInSelection, selection1, c) !== A2($author$project$Main$cellInSelection, selection2, c);
-				});
-			var idleActivePredicate = $author$project$Main$cellInSelection(playerSelection);
-			var convertColor = A2($elm$core$Basics$composeR, $mdgriffith$elm_ui$Element$toRgb, $avh4$elm_color$Color$fromRgba);
-			var inactiveColor = convertColor($author$project$Main$dracula.comment);
-			var activeColor = convertColor($author$project$Main$dracula.foreground);
-			var cellColorByPredicate = F2(
-				function (predicate, c) {
-					return predicate(c) ? activeColor : inactiveColor;
-				});
-			return $mdgriffith$elm_ui$Element$fromRgb(
-				$avh4$elm_color$Color$toRgba(
-					A2(
-						$mdgriffith$elm_animator$Animator$color,
-						model.state,
-						function (state) {
-							var _v1 = state.turnState;
-							if (_v1.$ === 'Idle') {
-								return A2(cellColorByPredicate, idleActivePredicate, cell);
-							} else {
-								var enemySelection = _v1.a;
-								return A2(
-									cellColorByPredicate,
-									A2(showSelectionsActivePredicate, playerSelection, enemySelection),
-									cell);
-							}
-						})));
-		}();
-		var cellLeaf = $author$project$Main$leaf(
-			_List_fromArray(
-				[
-					$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
-					$mdgriffith$elm_ui$Element$height($mdgriffith$elm_ui$Element$fill),
-					$mdgriffith$elm_ui$Element$scale(scale),
-					$mdgriffith$elm_ui$Element$Background$color(aliveColor)
-				]));
-		var nextStateAttribues = function () {
-			var _v0 = _Utils_Tuple2(currentAlive, nextAlive);
-			_v0$2:
-			while (true) {
-				if (_v0.a) {
-					if (!_v0.b) {
-						return _List_fromArray(
-							[
-								indicator($author$project$Main$dracula.background)
-							]);
-					} else {
-						break _v0$2;
-					}
+				if (_v5.b.$ === 'ShowSelections') {
+					var enemySelection = _v5.b.a;
+					return selection(enemySelection);
 				} else {
-					if (_v0.b) {
-						return _List_fromArray(
-							[
-								indicator(aliveColor)
-							]);
-					} else {
-						break _v0$2;
-					}
+					return _List_Nil;
 				}
 			}
-			return _List_Nil;
 		}();
-		var wrapperAttributes = $elm$core$List$concat(
-			_List_fromArray(
+		var playerSelection = $author$project$Main$unwrapInteractiveSelection(currentState.playerSelection);
+		var currentAliveCells = currentState.aliveCells;
+		var nextStepAliveCells = A2($author$project$Main$nextAliveCells, boardSize, currentAliveCells);
+		var viewCell = function (cell) {
+			var scale = A2(
+				$mdgriffith$elm_animator$Animator$linear,
+				stateTimeline,
+				function (state) {
+					return $mdgriffith$elm_animator$Animator$at(
+						A2($elm$core$Set$member, cell, state.aliveCells) ? 1 : 0);
+				});
+			var nextAlive = A2($elm$core$Set$member, cell, nextStepAliveCells);
+			var mouseEnterEvent = function () {
+				var _v3 = _Utils_Tuple2(currentState.playerSelection, currentState.turnState);
+				if ((_v3.a.$ === 'Partial') && (_v3.b.$ === 'Idle')) {
+					var _v4 = _v3.b;
+					return $author$project$Main$UpdateSelection(cell);
+				} else {
+					return $author$project$Main$None;
+				}
+			}();
+			var mouseDownEvent = function () {
+				var _v2 = currentState.turnState;
+				if (_v2.$ === 'Idle') {
+					return $author$project$Main$StartSelection(cell);
+				} else {
+					return $author$project$Main$None;
+				}
+			}();
+			var indicator = function (color) {
+				var indicatorSize = $mdgriffith$elm_ui$Element$px(6);
+				return $mdgriffith$elm_ui$Element$inFront(
+					$author$project$Main$leaf(
+						_List_fromArray(
+							[
+								$mdgriffith$elm_ui$Element$centerX,
+								$mdgriffith$elm_ui$Element$centerY,
+								$mdgriffith$elm_ui$Element$width(indicatorSize),
+								$mdgriffith$elm_ui$Element$height(indicatorSize),
+								$mdgriffith$elm_ui$Element$Background$color(color)
+							])));
+			};
+			var currentAlive = A2($elm$core$Set$member, cell, currentAliveCells);
+			var backgroundAttributes = _List_fromArray(
 				[
-					_List_fromArray(
+					$mdgriffith$elm_ui$Element$width(
+					$mdgriffith$elm_ui$Element$px(50)),
+					$mdgriffith$elm_ui$Element$height(
+					$mdgriffith$elm_ui$Element$px(50)),
+					$mdgriffith$elm_ui$Element$padding(6),
+					$mdgriffith$elm_ui$Element$Events$onMouseDown(mouseDownEvent),
+					$mdgriffith$elm_ui$Element$Events$onMouseEnter(mouseEnterEvent)
+				]);
+			var aliveColor = function () {
+				var showSelectionsActivePredicate = F3(
+					function (selection1, selection2, c) {
+						return A2($author$project$Main$cellInSelection, selection1, c) !== A2($author$project$Main$cellInSelection, selection2, c);
+					});
+				var idleActivePredicate = $author$project$Main$cellInSelection(playerSelection);
+				var convertColor = A2($elm$core$Basics$composeR, $mdgriffith$elm_ui$Element$toRgb, $avh4$elm_color$Color$fromRgba);
+				var inactiveColor = convertColor($author$project$Main$dracula.comment);
+				var activeColor = convertColor($author$project$Main$dracula.foreground);
+				var cellColorByPredicate = F2(
+					function (predicate, c) {
+						return predicate(c) ? activeColor : inactiveColor;
+					});
+				return $mdgriffith$elm_ui$Element$fromRgb(
+					$avh4$elm_color$Color$toRgba(
+						A2(
+							$mdgriffith$elm_animator$Animator$color,
+							stateTimeline,
+							function (state) {
+								var _v1 = state.turnState;
+								switch (_v1.$) {
+									case 'Idle':
+										return A2(cellColorByPredicate, idleActivePredicate, cell);
+									case 'StartAnimation':
+										return A2(cellColorByPredicate, idleActivePredicate, cell);
+									default:
+										var enemySelection = _v1.a;
+										return A2(
+											cellColorByPredicate,
+											A2(showSelectionsActivePredicate, playerSelection, enemySelection),
+											cell);
+								}
+							})));
+			}();
+			var cellLeaf = $author$project$Main$leaf(
+				_List_fromArray(
 					[
 						$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
 						$mdgriffith$elm_ui$Element$height($mdgriffith$elm_ui$Element$fill),
-						$author$project$Main$cellPatternClass
-					]),
-					nextStateAttribues
-				]));
-		return A2(
-			$mdgriffith$elm_ui$Element$el,
-			backgroundAttributes,
-			A2($mdgriffith$elm_ui$Element$el, wrapperAttributes, cellLeaf));
-	};
-	var viewRow = function (y) {
-		return A2(
-			$mdgriffith$elm_ui$Element$row,
-			_List_fromArray(
-				[
-					$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
-					$mdgriffith$elm_ui$Element$height(
-					$mdgriffith$elm_ui$Element$fillPortion(1))
-				]),
-			A2(
-				$elm_community$list_extra$List$Extra$initialize,
-				model.boardSize,
-				function (x) {
-					return viewCell(
-						_Utils_Tuple2(x, y));
-				}));
-	};
-	var centerDelimiter = $mdgriffith$elm_ui$Element$behindContent(
-		A2(
-			$mdgriffith$elm_ui$Element$row,
-			_List_fromArray(
-				[
-					$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
-					$mdgriffith$elm_ui$Element$height($mdgriffith$elm_ui$Element$fill)
-				]),
-			_List_fromArray(
-				[
-					$author$project$Main$leaf(
-					_List_fromArray(
-						[
-							$mdgriffith$elm_ui$Element$width(
-							$mdgriffith$elm_ui$Element$fillPortion(1)),
-							$mdgriffith$elm_ui$Element$height($mdgriffith$elm_ui$Element$fill),
-							$mdgriffith$elm_ui$Element$Border$widthEach(
-							{bottom: 0, left: 0, right: 2, top: 0}),
-							$mdgriffith$elm_ui$Element$Border$color($author$project$Main$dracula.currentLine),
-							$mdgriffith$elm_ui$Element$Border$dotted
-						])),
-					$author$project$Main$leaf(
-					_List_fromArray(
-						[
-							$mdgriffith$elm_ui$Element$width(
-							$mdgriffith$elm_ui$Element$fillPortion(1)),
-							$mdgriffith$elm_ui$Element$height($mdgriffith$elm_ui$Element$fill)
-						]))
-				])));
-	return A2(
-		$mdgriffith$elm_ui$Element$el,
-		_List_fromArray(
-			[
-				$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$shrink),
-				$mdgriffith$elm_ui$Element$height($mdgriffith$elm_ui$Element$shrink),
-				$mdgriffith$elm_ui$Element$Background$color($author$project$Main$dracula.background),
-				$mdgriffith$elm_ui$Element$Border$width(2),
-				$mdgriffith$elm_ui$Element$Border$color($author$project$Main$dracula.currentLine),
-				centerDelimiter
-			]),
-		A2(
-			$mdgriffith$elm_ui$Element$column,
-			$elm$core$List$concat(
+						$mdgriffith$elm_ui$Element$scale(scale),
+						$mdgriffith$elm_ui$Element$Background$color(aliveColor)
+					]));
+			var nextStateAttribues = function () {
+				var _v0 = _Utils_Tuple2(currentAlive, nextAlive);
+				_v0$2:
+				while (true) {
+					if (_v0.a) {
+						if (!_v0.b) {
+							return _List_fromArray(
+								[
+									indicator($author$project$Main$dracula.background)
+								]);
+						} else {
+							break _v0$2;
+						}
+					} else {
+						if (_v0.b) {
+							return _List_fromArray(
+								[
+									indicator(aliveColor)
+								]);
+						} else {
+							break _v0$2;
+						}
+					}
+				}
+				return _List_Nil;
+			}();
+			var wrapperAttributes = $elm$core$List$concat(
 				_List_fromArray(
 					[
 						_List_fromArray(
 						[
 							$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
 							$mdgriffith$elm_ui$Element$height($mdgriffith$elm_ui$Element$fill),
-							$mdgriffith$elm_ui$Element$padding(10),
-							$mdgriffith$elm_ui$Element$behindContent(
-							A3(viewSelection, model.boardSize, $author$project$Main$Player, playerSelection))
+							$author$project$Main$cellPatternClass
 						]),
-						enemySelectionAttribute
-					])),
-			A2($elm_community$list_extra$List$Extra$initialize, model.boardSize, viewRow)));
-};
+						nextStateAttribues
+					]));
+			return A2(
+				$mdgriffith$elm_ui$Element$el,
+				backgroundAttributes,
+				A2($mdgriffith$elm_ui$Element$el, wrapperAttributes, cellLeaf));
+		};
+		var viewRow = function (y) {
+			return A2(
+				$mdgriffith$elm_ui$Element$row,
+				_List_fromArray(
+					[
+						$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
+						$mdgriffith$elm_ui$Element$height(
+						$mdgriffith$elm_ui$Element$fillPortion(1))
+					]),
+				A2(
+					$elm_community$list_extra$List$Extra$initialize,
+					boardSize,
+					function (x) {
+						return viewCell(
+							_Utils_Tuple2(x, y));
+					}));
+		};
+		var centerDelimiter = $mdgriffith$elm_ui$Element$behindContent(
+			A2(
+				$mdgriffith$elm_ui$Element$row,
+				_List_fromArray(
+					[
+						$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
+						$mdgriffith$elm_ui$Element$height($mdgriffith$elm_ui$Element$fill)
+					]),
+				_List_fromArray(
+					[
+						$author$project$Main$leaf(
+						_List_fromArray(
+							[
+								$mdgriffith$elm_ui$Element$width(
+								$mdgriffith$elm_ui$Element$fillPortion(1)),
+								$mdgriffith$elm_ui$Element$height($mdgriffith$elm_ui$Element$fill),
+								$mdgriffith$elm_ui$Element$Border$widthEach(
+								{bottom: 0, left: 0, right: 2, top: 0}),
+								$mdgriffith$elm_ui$Element$Border$color($author$project$Main$dracula.currentLine),
+								$mdgriffith$elm_ui$Element$Border$dotted
+							])),
+						$author$project$Main$leaf(
+						_List_fromArray(
+							[
+								$mdgriffith$elm_ui$Element$width(
+								$mdgriffith$elm_ui$Element$fillPortion(1)),
+								$mdgriffith$elm_ui$Element$height($mdgriffith$elm_ui$Element$fill)
+							]))
+					])));
+		return A2(
+			$mdgriffith$elm_ui$Element$el,
+			_List_fromArray(
+				[
+					$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$shrink),
+					$mdgriffith$elm_ui$Element$height($mdgriffith$elm_ui$Element$shrink),
+					$mdgriffith$elm_ui$Element$Background$color($author$project$Main$dracula.background),
+					$mdgriffith$elm_ui$Element$Border$width(2),
+					$mdgriffith$elm_ui$Element$Border$color($author$project$Main$dracula.currentLine),
+					centerDelimiter
+				]),
+			A2(
+				$mdgriffith$elm_ui$Element$column,
+				$elm$core$List$concat(
+					_List_fromArray(
+						[
+							_List_fromArray(
+							[
+								$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
+								$mdgriffith$elm_ui$Element$height($mdgriffith$elm_ui$Element$fill),
+								$mdgriffith$elm_ui$Element$padding(10),
+								$mdgriffith$elm_ui$Element$behindContent(
+								A2(viewSelection, $author$project$Main$Player, playerSelection))
+							]),
+							enemySelectionAttribute
+						])),
+				A2($elm_community$list_extra$List$Extra$initialize, boardSize, viewRow)));
+	});
 var $author$project$Main$layout = function (model) {
 	var resetButton = A2(
 		$mdgriffith$elm_ui$Element$Input$button,
@@ -20540,26 +20581,31 @@ var $author$project$Main$layout = function (model) {
 			label: $mdgriffith$elm_ui$Element$text('Reset game'),
 			onPress: $elm$core$Maybe$Just($author$project$Main$Reset)
 		});
-	var nextTurnButton = A2(
-		$mdgriffith$elm_ui$Element$Input$button,
-		_List_fromArray(
-			[
-				$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
-				$mdgriffith$elm_ui$Element$padding(15),
-				$mdgriffith$elm_ui$Element$Background$color($author$project$Main$dracula.background),
-				$mdgriffith$elm_ui$Element$Border$color($author$project$Main$dracula.foreground),
-				$mdgriffith$elm_ui$Element$Border$width(2),
-				$mdgriffith$elm_ui$Element$Font$center,
-				$mdgriffith$elm_ui$Element$Font$bold
-			]),
-		{
-			label: $mdgriffith$elm_ui$Element$text('Next turn'),
-			onPress: $elm$core$Maybe$Just($author$project$Main$EndPlayerTurn)
-		});
+	var nextTurnButton = function () {
+		var color = $author$project$Main$canInteract(model.state) ? $author$project$Main$dracula.foreground : $author$project$Main$dracula.currentLine;
+		return A2(
+			$mdgriffith$elm_ui$Element$Input$button,
+			_List_fromArray(
+				[
+					$mdgriffith$elm_ui$Element$width($mdgriffith$elm_ui$Element$fill),
+					$mdgriffith$elm_ui$Element$padding(15),
+					$mdgriffith$elm_ui$Element$Background$color($author$project$Main$dracula.background),
+					$mdgriffith$elm_ui$Element$Font$color(color),
+					$mdgriffith$elm_ui$Element$Border$color(color),
+					$mdgriffith$elm_ui$Element$Border$width(2),
+					$mdgriffith$elm_ui$Element$Font$center,
+					$mdgriffith$elm_ui$Element$Font$bold
+				]),
+			{
+				label: $mdgriffith$elm_ui$Element$text('Next turn'),
+				onPress: $elm$core$Maybe$Just($author$project$Main$EndPlayerTurn)
+			});
+	}();
 	var currentState = $mdgriffith$elm_animator$Animator$current(model.state);
 	var mouseUpEvent = function () {
-		var _v0 = currentState.turnState;
-		if (_v0.$ === 'Idle') {
+		var _v0 = _Utils_Tuple2(currentState.turnState, currentState.playerSelection);
+		if ((_v0.a.$ === 'Idle') && (_v0.b.$ === 'Partial')) {
+			var _v1 = _v0.a;
 			return $author$project$Main$EndSelection;
 		} else {
 			return $author$project$Main$None;
@@ -20629,7 +20675,7 @@ var $author$project$Main$layout = function (model) {
 						A2($author$project$Main$enemyScore, model.boardSize, currentAliveCells)))
 				]));
 	}();
-	var board = $author$project$Main$viewBoard(model);
+	var board = A2($author$project$Main$viewBoard, model.boardSize, model.state);
 	return root(
 		A2(
 			$mdgriffith$elm_ui$Element$column,
@@ -21430,7 +21476,7 @@ var parent = module.bundle.parent;
 if ((!parent || !parent.isParcelRequire) && typeof WebSocket !== 'undefined') {
   var hostname = "" || location.hostname;
   var protocol = location.protocol === 'https:' ? 'wss' : 'ws';
-  var ws = new WebSocket(protocol + '://' + hostname + ':' + "34447" + '/');
+  var ws = new WebSocket(protocol + '://' + hostname + ':' + "34251" + '/');
 
   ws.onmessage = function (event) {
     checkedAssets = {};
